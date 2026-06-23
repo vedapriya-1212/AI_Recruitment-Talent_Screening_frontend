@@ -1,0 +1,676 @@
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { X, Building2, User, ArrowRight, ShieldCheck, Mail, Lock, Loader2, FileText, Globe, Star, Layers } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import { toast } from 'sonner';
+
+export default function PortalModal({ isOpen, onClose }) {
+  const navigate = useNavigate();
+  const { login, signup, resendOtp } = useAuth();
+
+  const [activePortal, setActivePortal] = useState(null); // 'recruiter' | 'candidate' | null
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [signUpStep, setSignUpStep] = useState(1); // 1 | 2
+
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // OTP Verification States
+  const [showOtpScreen, setShowOtpScreen] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [resendCountdown, setResendCountdown] = useState(0);
+
+  // Detailed Form States
+  // Recruiter fields
+  const [companyName, setCompanyName] = useState('');
+  const [industry, setIndustry] = useState('Software');
+  const [companySize, setCompanySize] = useState('11-50');
+  const [jobTitle, setJobTitle] = useState('');
+
+  // Candidate fields
+  const [preferredRole, setPreferredRole] = useState('');
+  const [experienceLevel, setExperienceLevel] = useState('Mid-Level');
+  const [skills, setSkills] = useState('');
+  const [githubUrl, setGithubUrl] = useState('');
+
+  const resetState = () => {
+    setActivePortal(null);
+    setIsSignUp(false);
+    setSignUpStep(1);
+    setFullName('');
+    setEmail('');
+    setPassword('');
+    setCompanyName('');
+    setIndustry('Software');
+    setCompanySize('11-50');
+    setJobTitle('');
+    setPreferredRole('');
+    setExperienceLevel('Mid-Level');
+    setSkills('');
+    setGithubUrl('');
+    setIsLoading(false);
+    setShowOtpScreen(false);
+    setOtpCode('');
+    setResendCountdown(0);
+  };
+
+  const handleClose = () => {
+    resetState();
+    onClose();
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCountdown > 0) return;
+    setIsLoading(true);
+    try {
+      await resendOtp(email);
+      toast.success('Verification code resent to your email.');
+      setResendCountdown(60);
+      const timer = setInterval(() => {
+        setResendCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to resend verification code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (isSignUp && signUpStep === 1) {
+      // Transition to detailed form
+      setSignUpStep(2);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      let profile;
+      if (isSignUp) {
+        const names = fullName.trim().split(/\s+/);
+        const firstName = names[0] || '';
+        const lastName = names.slice(1).join(' ') || '';
+
+        if (!showOtpScreen) {
+          // Phase 1: Send OTP
+          const res = await signup(email, password, firstName, lastName, activePortal);
+          if (res && res.otpRequired) {
+            setShowOtpScreen(true);
+            setResendCountdown(60);
+            const timer = setInterval(() => {
+              setResendCountdown(prev => {
+                if (prev <= 1) {
+                  clearInterval(timer);
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+            toast.success('Verification code sent to your email.');
+            setIsLoading(false);
+            return;
+          }
+          profile = res;
+        } else {
+          // Phase 2: Verify OTP
+          profile = await signup(email, password, firstName, lastName, activePortal, otpCode);
+        }
+
+        // Save detailed profile data locally for mock representation
+        const detailedProfile = activePortal === 'recruiter'
+          ? { companyName, industry, companySize, jobTitle }
+          : { preferredRole, experienceLevel, skills, githubUrl };
+        localStorage.setItem('user_detailed_profile', JSON.stringify(detailedProfile));
+
+        toast.success(`Account fully set up! Welcome to the ${activePortal} workspace.`);
+      } else {
+        profile = await login(email, password, activePortal);
+        toast.success('Access Unlocked successfully!');
+      }
+
+      handleClose();
+      // Redirect based on the user's actual database profile role
+      if (profile && profile.role === 'recruiter') {
+        navigate('/recruiter/dashboard');
+      } else {
+        navigate('/candidate/dashboard');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : 'Authentication failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop blur */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={handleClose}
+            className="absolute inset-0 bg-bgDark/80 backdrop-blur-md"
+          />
+
+          {/* Modal Container */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.93, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.93, y: 20 }}
+            transition={{ type: 'spring', duration: 0.5 }}
+            className="relative z-10 w-full max-w-4xl glass-panel rounded-2xl max-h-[90vh] overflow-y-auto p-6 md:p-10 border border-white/10 shadow-2xl bg-[#071021]/80"
+          >
+            {/* Close Button */}
+            <button
+              onClick={handleClose}
+              className="absolute top-4 right-4 p-2 rounded-full text-mutedGray hover:text-white hover:bg-white/10 transition-all duration-200 cursor-pointer"
+              aria-label="Close modal"
+              id="close-modal-btn"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Content Switcher */}
+            <AnimatePresence mode="wait">
+              {activePortal === null ? (
+                // Choice screen
+                <motion.div
+                  key="choice"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="text-center"
+                >
+                  <h3 className="text-3xl font-black tracking-tight mb-2 text-white font-space uppercase">
+                    Access <span className="gradient-text-cyan-purple">Talent Intelligence</span>
+                  </h3>
+                  <p className="text-mutedGray max-w-md mx-auto mb-10 text-xs font-outfit">
+                    Select your gateway to interact with the neural hiring pipeline.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+                    
+                    {/* Recruiter Card */}
+                    <motion.div
+                      onClick={() => setActivePortal('recruiter')}
+                      whileHover={{ scale: 1.02, y: -4 }}
+                      className="cursor-pointer text-left p-8 rounded-xl glass-panel bg-white/3 border border-white/6 hover:border-primaryGlow/30 relative group overflow-hidden transition-all duration-300"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-primaryGlow/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                      <div className="w-14 h-14 rounded-lg bg-primaryGlow/10 border border-primaryGlow/25 flex items-center justify-center text-primaryGlow mb-6 group-hover:scale-105 transition-transform duration-300">
+                        <Building2 className="w-7 h-7" />
+                      </div>
+                      <h4 className="text-xl font-bold text-white mb-2 group-hover:text-primaryGlow transition-colors duration-200 font-space uppercase">
+                        Recruiter Portal
+                      </h4>
+                      <p className="text-mutedGray text-xs mb-6 leading-relaxed font-outfit">
+                        Source, screen, and schedule top-tier candidates with AI automation. Access executive dashboard and ranking panels.
+                      </p>
+                      <div className="flex items-center text-primaryGlow text-xs font-bold uppercase tracking-wider group-hover:translate-x-2 transition-transform duration-300 font-space">
+                        Enter Workspace <ArrowRight className="w-3.5 h-3.5 ml-2" />
+                      </div>
+                    </motion.div>
+
+                    {/* Candidate Card */}
+                    <motion.div
+                      onClick={() => setActivePortal('candidate')}
+                      whileHover={{ scale: 1.02, y: -4 }}
+                      className="cursor-pointer text-left p-8 rounded-xl glass-panel bg-white/3 border border-white/6 hover:border-secondaryGlow/30 relative group overflow-hidden transition-all duration-300"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-secondaryGlow/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                      <div className="w-14 h-14 rounded-lg bg-secondaryGlow/10 border border-secondaryGlow/25 flex items-center justify-center text-secondaryGlow mb-6 group-hover:scale-105 transition-transform duration-300">
+                        <User className="w-7 h-7" />
+                      </div>
+                      <h4 className="text-xl font-bold text-white mb-2 group-hover:text-secondaryGlow transition-colors duration-200 font-space uppercase">
+                        Candidate Gateway
+                      </h4>
+                      <p className="text-mutedGray text-xs mb-6 leading-relaxed font-outfit">
+                        Complete AI-generated assessments, optimize your skills profile, and connect with tech teams automatically.
+                      </p>
+                      <div className="flex items-center text-secondaryGlow text-xs font-bold uppercase tracking-wider group-hover:translate-x-2 transition-transform duration-300 font-space">
+                        Track Application <ArrowRight className="w-3.5 h-3.5 ml-2" />
+                      </div>
+                    </motion.div>
+
+                  </div>
+                </motion.div>
+              ) : (
+                // Form screen (Recruiter or Candidate)
+                <motion.div
+                  key="form"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  className="max-w-md mx-auto"
+                >
+                  <button
+                    onClick={resetState}
+                    className="text-xs text-mutedGray hover:text-white flex items-center mb-6 transition-all duration-200 cursor-pointer font-space uppercase tracking-wider"
+                    id="back-to-portal-btn"
+                  >
+                    ← Back to selection
+                  </button>
+
+                  <div className="text-center mb-6">
+                    <div className={`w-12 h-12 rounded-lg mx-auto flex items-center justify-center mb-4 ${
+                      activePortal === 'recruiter' 
+                        ? 'bg-primaryGlow/10 text-primaryGlow border border-primaryGlow/25' 
+                        : 'bg-secondaryGlow/10 text-secondaryGlow border border-secondaryGlow/25'
+                    }`}>
+                      {activePortal === 'recruiter' ? <Building2 className="w-5 h-5" /> : <User className="w-5 h-5" />}
+                    </div>
+                    <h3 className="text-2.5xl font-bold text-white capitalize font-space uppercase">
+                      {activePortal} Portal
+                    </h3>
+                    <p className="text-mutedGray text-xs mt-1 mb-6 font-outfit">
+                      {activePortal === 'recruiter'
+                        ? 'Connect your enterprise to the neural pipeline'
+                        : 'Submit details to let the AI match your profile'}
+                    </p>
+                    {/* Premium Sliding Segmented Switcher */}
+                    {(!isSignUp || signUpStep === 1) && !showOtpScreen && (
+                      <div className="flex p-1 bg-white/5 border border-white/10 rounded-xl max-w-[280px] mx-auto relative shadow-inner">
+                        <button
+                          type="button"
+                          onClick={() => setIsSignUp(false)}
+                          className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider font-space rounded-lg transition-all duration-300 relative z-10 cursor-pointer ${
+                            !isSignUp 
+                              ? 'text-[#030712]' 
+                              : 'text-mutedGray hover:text-white'
+                          }`}
+                        >
+                          Sign In
+                          {!isSignUp && (
+                            <motion.div
+                              layoutId="activeTabGlow"
+                              className={`absolute inset-0 rounded-lg -z-10 ${
+                                activePortal === 'recruiter' ? 'bg-primaryGlow' : 'bg-secondaryGlow'
+                              }`}
+                              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                            />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsSignUp(true)}
+                          className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider font-space rounded-lg transition-all duration-300 relative z-10 cursor-pointer ${
+                            isSignUp 
+                              ? 'text-[#030712]' 
+                              : 'text-mutedGray hover:text-white'
+                          }`}
+                        >
+                          Sign Up
+                          {isSignUp && (
+                            <motion.div
+                              layoutId="activeTabGlow"
+                              className={`absolute inset-0 rounded-lg -z-10 ${
+                                activePortal === 'recruiter' ? 'bg-primaryGlow' : 'bg-secondaryGlow'
+                              }`}
+                              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                            />
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSubmit} className="space-y-4 text-left">
+                    {showOtpScreen ? (
+                      <div className="space-y-4 text-center">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-3 mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-mutedGray font-space">Step 3: Verification</span>
+                          <button
+                            type="button"
+                            onClick={() => { setShowOtpScreen(false); setOtpCode(''); }}
+                            className="text-[9px] text-primaryGlow hover:text-white uppercase tracking-wider font-space cursor-pointer bg-transparent border-none outline-none"
+                          >
+                            ← Back
+                          </button>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-3 font-space text-center">Enter the 6-digit OTP code sent to your email</label>
+                          <div className="relative max-w-[200px] mx-auto">
+                            <input
+                              type="text"
+                              maxLength={6}
+                              required
+                              disabled={isLoading}
+                              value={otpCode}
+                              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                              placeholder="000000"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-3 text-center text-xl tracking-[10px] font-bold text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-space disabled:opacity-50"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isLoading || otpCode.length !== 6}
+                          className={`w-full py-3.5 mt-4 rounded-xl font-bold text-xs flex items-center justify-center transition-all duration-300 relative overflow-hidden group shadow-lg cursor-pointer font-space uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed ${
+                            activePortal === 'recruiter'
+                              ? 'bg-primaryGlow text-[#030712] shadow-primaryGlow/10 hover:shadow-primaryGlow/25'
+                              : 'bg-secondaryGlow text-white shadow-secondaryGlow/10 hover:shadow-secondaryGlow/25'
+                          }`}
+                        >
+                          {isLoading ? (
+                            <>
+                              <span>Verifying Code...</span>
+                              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                            </>
+                          ) : (
+                            <>
+                              <span>Verify & Register</span>
+                              <ShieldCheck className="w-4 h-4 ml-2" />
+                            </>
+                          )}
+                        </button>
+
+                        <div className="mt-4">
+                          <button
+                            type="button"
+                            disabled={isLoading || resendCountdown > 0}
+                            onClick={handleResendOtp}
+                            className="text-xs text-mutedGray hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all font-outfit"
+                          >
+                            {resendCountdown > 0 ? `Resend Code in ${resendCountdown}s` : 'Resend Verification Code'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : isSignUp && signUpStep === 2 ? (
+                      // STEP 2: DETAILED DATA FOR FIRST-TIME SIGNUP
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-3 mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-mutedGray font-space">Step 2: Workspace Profiling</span>
+                          <button
+                            type="button"
+                            onClick={() => setSignUpStep(1)}
+                            className="text-[9px] text-primaryGlow hover:text-white uppercase tracking-wider font-space cursor-pointer bg-transparent border-none outline-none"
+                          >
+                            ← Back to credentials
+                          </button>
+                        </div>
+
+                        {activePortal === 'recruiter' ? (
+                          <>
+                            {/* RECRUITER DETAILED FORM */}
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Company Name</label>
+                              <div className="relative">
+                                <Building2 className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                <input
+                                  type="text"
+                                  required
+                                  disabled={isLoading}
+                                  value={companyName}
+                                  onChange={(e) => setCompanyName(e.target.value)}
+                                  placeholder="e.g. Neural Technologies Inc."
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Your Corporate Title</label>
+                              <div className="relative">
+                                <FileText className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                <input
+                                  type="text"
+                                  required
+                                  disabled={isLoading}
+                                  value={jobTitle}
+                                  onChange={(e) => setJobTitle(e.target.value)}
+                                  placeholder="e.g. Lead Talent Officer"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Industry</label>
+                                <div className="relative">
+                                  <Globe className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                  <select
+                                    disabled={isLoading}
+                                    value={industry}
+                                    onChange={(e) => setIndustry(e.target.value)}
+                                    className="w-full bg-[#071021] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                  >
+                                    <option value="Software">Software / Tech</option>
+                                    <option value="AI/ML">AI / Machine Learning</option>
+                                    <option value="Finance">Finance / Fintech</option>
+                                    <option value="Healthcare">Healthcare</option>
+                                    <option value="E-Commerce">E-Commerce</option>
+                                    <option value="Other">Other Sector</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Company Size</label>
+                                <div className="relative">
+                                  <Layers className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                  <select
+                                    disabled={isLoading}
+                                    value={companySize}
+                                    onChange={(e) => setCompanySize(e.target.value)}
+                                    className="w-full bg-[#071021] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                  >
+                                    <option value="1-10">1-10 Employees</option>
+                                    <option value="11-50">11-50 Employees</option>
+                                    <option value="51-200">51-200 Employees</option>
+                                    <option value="201-1000">201-1000 Employees</option>
+                                    <option value="1000+">1000+ Employees</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {/* CANDIDATE DETAILED FORM */}
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Preferred Job Title</label>
+                              <div className="relative">
+                                <FileText className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                <input
+                                  type="text"
+                                  required
+                                  disabled={isLoading}
+                                  value={preferredRole}
+                                  onChange={(e) => setPreferredRole(e.target.value)}
+                                  placeholder="e.g. Senior Frontend Engineer"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-secondaryGlow focus:ring-1 focus:ring-secondaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Portfolio / GitHub Link</label>
+                              <div className="relative">
+                                <Globe className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                <input
+                                  type="url"
+                                  required
+                                  disabled={isLoading}
+                                  value={githubUrl}
+                                  onChange={(e) => setGithubUrl(e.target.value)}
+                                  placeholder="https://github.com/yourusername"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-secondaryGlow focus:ring-1 focus:ring-secondaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Core Skills (Comma separated)</label>
+                              <div className="relative">
+                                <Star className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                <input
+                                  type="text"
+                                  required
+                                  disabled={isLoading}
+                                  value={skills}
+                                  onChange={(e) => setSkills(e.target.value)}
+                                  placeholder="e.g. React, TypeScript, Node.js"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-secondaryGlow focus:ring-1 focus:ring-secondaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Experience Level</label>
+                              <div className="relative">
+                                <Layers className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                                <select
+                                  disabled={isLoading}
+                                  value={experienceLevel}
+                                  onChange={(e) => setExperienceLevel(e.target.value)}
+                                  className="w-full bg-[#071021] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-secondaryGlow focus:ring-1 focus:ring-secondaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                                >
+                                  <option value="Intern">Intern / Student</option>
+                                  <option value="Junior">Junior Level (1-2 yrs)</option>
+                                  <option value="Mid-Level">Mid-Level (3-5 yrs)</option>
+                                  <option value="Senior">Senior Level (5-8 yrs)</option>
+                                  <option value="Lead">Lead / Architect (8+ yrs)</option>
+                                </select>
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        <button
+                          type="submit"
+                          disabled={isLoading}
+                          className={`w-full py-3.5 mt-4 rounded-xl font-bold text-xs flex items-center justify-center transition-all duration-300 relative overflow-hidden group shadow-lg cursor-pointer font-space uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed ${
+                            activePortal === 'recruiter'
+                              ? 'bg-primaryGlow text-[#030712] shadow-primaryGlow/10 hover:shadow-primaryGlow/25'
+                              : 'bg-secondaryGlow text-white shadow-secondaryGlow/10 hover:shadow-secondaryGlow/25'
+                          }`}
+                        >
+                          {isLoading ? (
+                            <>
+                              <span>Registering Workspace...</span>
+                              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                            </>
+                          ) : (
+                            <>
+                              <span>Finalize Setup & Connect</span>
+                              <ShieldCheck className="w-4 h-4 ml-2" />
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      // STEP 1: INITIAL CREDENTIALS (OR LOGIN)
+                      <>
+                        {isSignUp && (
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Full Name</label>
+                            <div className="relative">
+                              <User className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                              <input
+                                type="text"
+                                required
+                                disabled={isLoading}
+                                value={fullName}
+                                onChange={(e) => setFullName(e.target.value)}
+                                placeholder="John Doe"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Email Address</label>
+                          <div className="relative">
+                            <Mail className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                            <input
+                              type="email"
+                              required
+                              disabled={isLoading}
+                              value={email}
+                              onChange={(e) => setEmail(e.target.value)}
+                              placeholder={activePortal === 'recruiter' ? 'recruiter@recruiter.com' : 'candidate@candidate.com'}
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-mutedGray mb-1.5 font-space">Access Key / Password</label>
+                          <div className="relative">
+                            <Lock className="absolute left-3.5 top-[13px] w-4 h-4 text-mutedGray" />
+                            <input
+                              type="password"
+                              required
+                              disabled={isLoading}
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="••••••••"
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-primaryGlow focus:ring-1 focus:ring-primaryGlow transition-all duration-200 font-outfit disabled:opacity-50"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isLoading}
+                          className={`w-full py-3.5 mt-2 rounded-xl font-bold text-xs flex items-center justify-center transition-all duration-300 relative overflow-hidden group shadow-lg cursor-pointer font-space uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed ${
+                            activePortal === 'recruiter'
+                              ? 'bg-primaryGlow text-[#030712] shadow-primaryGlow/10 hover:shadow-primaryGlow/25'
+                              : 'bg-secondaryGlow text-white shadow-secondaryGlow/10 hover:shadow-secondaryGlow/25'
+                          }`}
+                        >
+                          {isLoading ? (
+                            <>
+                              <span>Processing...</span>
+                              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                            </>
+                          ) : (
+                            <>
+                              <span>{isSignUp ? 'Next: Workspace Details' : 'Unlock Access'}</span>
+                              <ShieldCheck className="w-4 h-4 ml-2" />
+                            </>
+                          )}
+                        </button>
+                      </>
+                    )}
+                  </form>
+
+                  {(!isSignUp || signUpStep === 1) && !showOtpScreen && (
+                    <div className="text-center mt-6">
+                      <button
+                        onClick={() => setIsSignUp(!isSignUp)}
+                        className="text-xs text-mutedGray hover:text-white transition-all duration-200 cursor-pointer font-outfit"
+                      >
+                        {isSignUp ? 'Already connected? Unlock access' : 'Request gateway access / Register'}
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
